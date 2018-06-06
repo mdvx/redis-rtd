@@ -80,31 +80,29 @@ namespace RedisRtd
                 {
                     case CLOCK:
                         lock (_subMgr)
-                            _subMgr.Subscribe(topicId, CLOCK);
+                            _subMgr.Subscribe(topicId, null, CLOCK);
 
                         return DateTime.Now.ToLocalTime();
 
                     case LAST_RTD:
                         lock (_subMgr)
-                            _subMgr.Subscribe(topicId, LAST_RTD);
+                            _subMgr.Subscribe(topicId, null, LAST_RTD);
 
                         return DateTime.Now.ToLocalTime();
                         //return SubscriptionManager.UninitializedValue;
                 }
                 return "ERROR: Expected: CLOCK or host, exchange, routingKey, field";
             }
-            else if (strings.Length >= 3)
+            else if (strings.Length >= 2)
             {
                 newValues = true;
 
                 // Crappy COM-style arrays...
                 string host = strings.GetValue(0).ToString();
-                string exchange = strings.GetValue(1).ToString();
-                string routingKey = strings.GetValue(2).ToString();
-                string field = strings.Length >= 4 ? strings.GetValue(3).ToString() : null;
+                string key = strings.GetValue(1).ToString();
 
                 CancellationTokenSource cts = new CancellationTokenSource();
-                Task.Run(() => Subscribe(topicId, host, exchange, routingKey, field, cts.Token));
+                Task.Run(() => Subscribe(topicId, host, key, cts.Token));
 
                 return SubscriptionManager.UninitializedValue;
             }
@@ -114,20 +112,20 @@ namespace RedisRtd
             return "ERROR: Expected: CLOCK or host, exchange, routingKey, field";
         }
 
-        private void Subscribe(int topicId, string host, string exchange, string routingKey, string field, CancellationToken cts)
+        private void Subscribe(int topicId, string host, string key, CancellationToken cts)
         {
             try
             {
                 lock (_subMgr)
                 {
-                    if (_subMgr.Subscribe(topicId, host, exchange, routingKey, field))
+                    if (_subMgr.Subscribe(topicId, host, key))
                         return; // already subscribed 
                 }
 
             }
             catch(Exception e)
             {
-                //ESLog.Error("SubscribeRabbit", e);
+        //        //ESLog.Error("SubscribeRabbit", e);
             }
         }
 
