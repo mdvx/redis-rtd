@@ -1,4 +1,4 @@
-# rabbit-rtd
+# redis-rtd
 Excel RTD server sourcing data from Redis
 
 

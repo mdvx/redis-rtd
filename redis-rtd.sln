@@ -1,8 +1,19 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
-VisualStudioVersion = 15.0.27703.2000
+VisualStudioVersion = 15.0.26430.16
 MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{7AE08D03-6D32-4C82-BE24-978305BAEC8A}"
+	ProjectSection(SolutionItems) = preProject
+		build.cmd = build.cmd
+		doc\clock.xlsx = doc\clock.xlsx
+		LICENSE = LICENSE
+		README.md = README.md
+		register.cmd = register.cmd
+		register.debug.cmd = register.debug.cmd
+		doc\Test.xlsx = doc\Test.xlsx
+	EndProjectSection
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Redis-Rtd", "Redis-rtd\Redis-Rtd.csproj", "{95F50618-AA6C-4551-8CD7-49E04C0D5CE9}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestApp", "TestApp\TestApp.csproj", "{34E6D830-BD3F-4A32-9DDD-5EE1C5CBB6A2}"
