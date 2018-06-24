@@ -4,34 +4,26 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using StackExchange.Redis;
 
 namespace RedisRtd
 {
     public class SubscriptionManager
     {
         public static readonly string UninitializedValue = "<?>";
+        readonly Action _onDirty;
 
-        ConnectionMultiplexer redis;
-        IDatabase db;
-        ISubscriber sub;
-
-        readonly Dictionary<string, SubInfo> _subByPath;
-        readonly Dictionary<string, SubInfo> _subByRabbitPath;
+        readonly Dictionary<string, SubInfo> _subByTopicPath;
+        readonly Dictionary<string, SubInfo> _subByRedisPath;
         readonly Dictionary<int, SubInfo> _subByTopicId;
         readonly Dictionary<int, SubInfo> _dirtyMap;
 
-
-        public SubscriptionManager()
+        public SubscriptionManager(Action onDirty)
         {
-            redis = ConnectionMultiplexer.Connect("localhost");
-            db = redis.GetDatabase();
-            sub = redis.GetSubscriber();
-
-            _subByRabbitPath = new Dictionary<string, SubInfo>();
-            _subByPath = new Dictionary<string, SubInfo>();
             _subByTopicId = new Dictionary<int, SubInfo>();
             _dirtyMap = new Dictionary<int, SubInfo>();
+            _subByRedisPath = new Dictionary<string, SubInfo>();
+            _subByTopicPath = new Dictionary<string, SubInfo>();
+            _onDirty = onDirty;
         }
 
         public bool IsDirty {
@@ -40,44 +32,31 @@ namespace RedisRtd
             }
         }
 
-        public bool Subscribe(int topicId, string host, string key)
+        public bool Subscribe(int topicId, string host, string channel, string field=null)
         {
-            var subInfo = new SubInfo(topicId, key);
-            _subByTopicId.Add(topicId, subInfo);
-            _subByPath.Add(key, subInfo);
+            var redisPath = FormatPath(host, channel);
+            var topicPath = FormatPath(host, channel, field);
 
-            sub.Subscribe(key, (channel, message) => {
-                Console.WriteLine((string)message);
-                Set(key, message);
-            });
+            var alreadySubscribed = false;
 
-            return true;
+            if (_subByRedisPath.TryGetValue(redisPath, out SubInfo subInfo))
+            {
+                alreadySubscribed = true;
+                subInfo.AddField(field);
+            }
+            else
+            {
+                subInfo = new SubInfo(topicId, redisPath);
+                subInfo.AddField(field);
+                _subByRedisPath[redisPath] = subInfo;
+            }
+
+            SubInfo rtdSubInfo = new SubInfo(topicId, topicPath);
+            _subByTopicId[topicId] = rtdSubInfo;
+            _subByTopicPath[topicPath] = rtdSubInfo;
+
+            return alreadySubscribed;
         }
-        //public bool Subscribe(int topicId, string host, string exchange, string routingKey, string field)
-        //{
-        //    var rabbitPath = FormatPath(host, exchange, routingKey);
-        //    var rtdPath = FormatPath(host, exchange, routingKey, field);
-
-        //    var alreadySubscribed = false;
-
-        //    if (_subByRabbitPath.TryGetValue(rabbitPath, out SubInfo subInfo))
-        //    {
-        //        alreadySubscribed = true;
-        //        subInfo.AddField(field);
-        //    }
-        //    else
-        //    {
-        //        subInfo = new SubInfo(topicId, rabbitPath);
-        //        subInfo.AddField(field);
-        //        _subByRabbitPath.Add(rabbitPath, subInfo);
-        //    }
-
-        //    SubInfo rtdSubInfo = new SubInfo(topicId, rtdPath);
-        //    _subByTopicId.Add(topicId, rtdSubInfo);
-        //    _subByPath.Add(rtdPath, rtdSubInfo);
-
-        //    return alreadySubscribed;
-        //}
 
         public void Unsubscribe(int topicId)
         {
@@ -86,8 +65,13 @@ namespace RedisRtd
                 //sub.Unsubscribe();
 
                 _subByTopicId.Remove(topicId);
-                _subByPath.Remove(subInfo.Path);
+                _subByTopicPath.Remove(subInfo.Path);
             }
+        }
+
+        public object GetValue(int topicId)
+        {
+            return _subByTopicId[topicId]?.Value;
         }
 
         public List<UpdatedValue> GetUpdatedValues()
@@ -107,7 +91,7 @@ namespace RedisRtd
 
         public bool Set(string path, object value)
         {
-            if (_subByPath.TryGetValue(path, out SubInfo subInfo))
+            if (_subByTopicPath.TryGetValue(path, out SubInfo subInfo))
             {
                 if (value != subInfo.Value)
                 {
@@ -115,25 +99,22 @@ namespace RedisRtd
                     lock (_dirtyMap)
                     {
                         _dirtyMap[subInfo.TopicId] = subInfo;
+                        _onDirty?.Invoke();
                     }
                     return true;
                 }
             }
             return false;
         }
-
         [DebuggerStepThrough]
-        public static string FormatPath(string host, string exchange, string routingKey)
+        public static string FormatPath(string host, string channel)
         {
-            return string.Format("{0}/{1}/{2}",
-                                 host.ToUpperInvariant(),
-                                 exchange.ToUpperInvariant(),
-                                 routingKey.ToUpperInvariant());
+            return string.Format($"{host.ToUpperInvariant()}/{channel}/");
         }
         [DebuggerStepThrough]
-        public static string FormatPath(string host, string exchange, string routingKey, string field)
+        public static string FormatPath(string host, string channel, string field)
         {
-            return string.Format("{0}/{1}", FormatPath(host, exchange, routingKey), field);
+            return FormatPath(host,channel) + field;
         }
 
         public class SubInfo
@@ -142,16 +123,7 @@ namespace RedisRtd
             public string Path { get; private set; }
             public HashSet<string> Fields { get; private set; }
 
-            private object _value;
-
-            public object Value
-            {
-                get { return _value; }
-                set
-                {
-                    _value = value;
-                }
-            }
+            public object Value { get; set; }
 
             public SubInfo(int topicId, string path)
             {
@@ -163,6 +135,10 @@ namespace RedisRtd
             public void AddField(string field)
             {
                 Fields.Add(field);
+            }
+            public override string ToString()
+            {
+                return $"SubInfo topic={TopicId} path={Path} value={Value}";
             }
         }
         public struct UpdatedValue
@@ -194,5 +170,4 @@ namespace RedisRtd
             }
         }
     }
-
 }

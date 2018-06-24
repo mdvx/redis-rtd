@@ -18,7 +18,8 @@ Excel RTD server sourcing data from Redis
 Once the RTD server has been installed, you can use it from Excel via the RTD macro.
 This is the syntax:
 
-`=RTD("redis",, "HOST","TBA", "TBA")`
+`=RTD("redis",, "HOST","CHANNEL")`
+`=RTD("redis",, "HOST","CHANNEL", "FIELD")`   // For JSON data
 
 
 <!-- ![Excel screenshot](doc/redis-rtd-excel.png) -->

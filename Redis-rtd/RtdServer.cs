@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using StackExchange.Redis;
 
 namespace RedisRtd
 {
@@ -19,32 +20,49 @@ namespace RedisRtd
     public class RtdServer : IRtdServer
     {
         IRtdUpdateEvent _callback;
-        DispatcherTimer _timer;
-        readonly SubscriptionManager _subMgr;
-        //Dictionary<string, IConnection> _connections = new Dictionary<string, IConnection>();
+
+        //DispatcherTimer _timer;
+        SubscriptionManager _subMgr;
+        ISubscriber _redisSubscriber;
+        bool _rtdUpdated = false;
+        object _rtdUpdatedLock = new object();
 
         private const string CLOCK = "CLOCK";
         private const string LAST_RTD = "LAST_RTD";
 
         public RtdServer ()
         {
-            _subMgr = new SubscriptionManager();
+            ConnectionMultiplexer redisConnection = ConnectionMultiplexer.Connect("localhost");
+            //IDatabase redisDb = redisDb = redisConnection.GetDatabase();
+            _redisSubscriber = redisConnection.GetSubscriber();
         }
         // Excel calls this. It's an entry point. It passes us a callback
         // structure which we save for later.
         int IRtdServer.ServerStart (IRtdUpdateEvent callback)
         {
             _callback = callback;
+            _subMgr = new SubscriptionManager(() => {
+                if (_callback != null)
+                {
+                    if (!_rtdUpdated)
+                    {
+                        lock (_rtdUpdatedLock)
+                            _rtdUpdated = true;
+
+                        _callback.UpdateNotify();
+                    }
+                }
+            });
 
             // We will throttle out updates so that Excel can keep up.
             // It is also important to invoke the Excel callback notify
             // function from the COM thread. System.Windows.Threading' 
             // DispatcherTimer will use COM thread's message pump.
-            DispatcherTimer dispatcherTimer = new DispatcherTimer();
-            _timer = dispatcherTimer;
-            _timer.Interval = TimeSpan.FromMilliseconds(95); // this needs to be very frequent
-            _timer.Tick += TimerElapsed;
-            _timer.Start();
+            //DispatcherTimer dispatcherTimer = new DispatcherTimer();
+            //_timer = dispatcherTimer;
+            //_timer.Interval = TimeSpan.FromMilliseconds(95); // this needs to be very frequent
+            //_timer.Tick += TimerElapsed;
+            //_timer.Start();
 
             return 1;
         }
@@ -52,17 +70,7 @@ namespace RedisRtd
         // Excel calls this when it wants to shut down RTD server.
         void IRtdServer.ServerTerminate ()
         {
-            if (_timer != null)
-            {
-                _timer.Stop();
-                _timer = null;
-            }
-
-            lock(_subMgr)
-            {
-                _callback.UpdateNotify();
-            }
-            //Thread.Sleep(2000);
+            _callback = null;
         }
 
         // Excel calls this when it wants to make a new topic subscription.
@@ -91,7 +99,7 @@ namespace RedisRtd
                         return DateTime.Now.ToLocalTime();
                         //return SubscriptionManager.UninitializedValue;
                 }
-                return "ERROR: Expected: CLOCK or host, exchange, routingKey, field";
+                return "ERROR: Expected: CLOCK or host, name, field";
             }
             else if (strings.Length >= 2)
             {
@@ -100,33 +108,48 @@ namespace RedisRtd
                 // Crappy COM-style arrays...
                 string host = strings.GetValue(0).ToString();
                 string key = strings.GetValue(1).ToString();
+                string field = strings.Length > 2 ? strings.GetValue(2).ToString() : "";
 
-                CancellationTokenSource cts = new CancellationTokenSource();
-                Task.Run(() => Subscribe(topicId, host, key, cts.Token));
-
-                return SubscriptionManager.UninitializedValue;
+                return SubscribeRedis(topicId, host, key, field);
             }
 
             newValues = false;
 
-            return "ERROR: Expected: CLOCK or host, exchange, routingKey, field";
+            return "ERROR: Expected: CLOCK or host, key, field";
         }
-
-        private void Subscribe(int topicId, string host, string key, CancellationToken cts)
+        private object SubscribeRedis(int topicId, string host, string channel, string field)
         {
-            try
+            lock (_subMgr)
             {
-                lock (_subMgr)
+                if (_subMgr.Subscribe(topicId, host, channel, field))
+                    return _subMgr.GetValue(topicId); // already subscribed 
+            }
+            _redisSubscriber.Subscribe(channel, (chan, message) => {
+                try
                 {
-                    if (_subMgr.Subscribe(topicId, host, key))
-                        return; // already subscribed 
-                }
+                    var str = message.ToString();
 
-            }
-            catch(Exception e)
-            {
-        //        //ESLog.Error("SubscribeRabbit", e);
-            }
+                    var rtdSubTopic = SubscriptionManager.FormatPath(host, chan);
+                    _subMgr.Set(rtdSubTopic, str);
+
+                    if (str.StartsWith("{"))
+                    {
+                        var jo = JsonConvert.DeserializeObject<Dictionary<String, String>>(str);
+
+                        foreach (string field_in in jo.Keys)
+                        {
+                            var rtdTopicString = SubscriptionManager.FormatPath(host, channel, field_in);
+                            _subMgr.Set(rtdTopicString, jo[field_in]);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                }
+            });
+
+            return _subMgr.GetValue(topicId);
         }
 
         // Excel calls this when it wants to cancel subscription.
@@ -141,6 +164,9 @@ namespace RedisRtd
         // Excel calls this every once in a while.
         int IRtdServer.Heartbeat ()
         {
+            lock (_rtdUpdatedLock)  // just in case it gets stuck
+                _rtdUpdated = false;
+
             return 1;
         }
 
@@ -152,15 +178,20 @@ namespace RedisRtd
 
             object[,] data = new object[2, topicCount];
 
-            for (int i = 0; i < topicCount; ++i)
+            int i = 0;
+            foreach (var info in updates)
             {
-                SubscriptionManager.UpdatedValue info = updates[i];
-
                 data[0, i] = info.TopicId;
                 data[1, i] = info.Value;
+
+                i++;
             }
 
-            return data;
+            lock (_rtdUpdatedLock)
+            {
+                _rtdUpdated = false;
+                return data;
+            }
         }
         
         // Helper function which checks if new data is available and,

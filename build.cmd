@@ -1,7 +1,11 @@
 @echo off
 
 echo Restoring NuGet packages
-nuget\nuget.exe restore .\redis-rtd.sln
+nuget restore .\redis-rtd.sln
+
+if errorlevel 1 pause
 
 echo Building release
-%SystemRoot%\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe  /p:Configuration=Release /v:minimal /nologo .\redis-rtd.sln
+"%VS150COMCOMNTOOLS%\..\..\MSBuild\15.0\Bin\MSBuild.exe"  /p:Configuration=Release /v:minimal /nologo .\redis-rtd.sln
+
+if errorlevel 1 pause
