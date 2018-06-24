@@ -24,8 +24,8 @@ namespace RedisRtd
         //DispatcherTimer _timer;
         SubscriptionManager _subMgr;
         ISubscriber _redisSubscriber;
-        bool _rtdUpdated = false;
-        object _rtdUpdatedLock = new object();
+        bool _isExcelNotifiedOfUpdates = false;
+        object _notifyLock = new object();
 
         private const string CLOCK = "CLOCK";
         private const string LAST_RTD = "LAST_RTD";
@@ -44,10 +44,10 @@ namespace RedisRtd
             _subMgr = new SubscriptionManager(() => {
                 if (_callback != null)
                 {
-                    if (!_rtdUpdated)
+                    if (!_isExcelNotifiedOfUpdates)
                     {
-                        lock (_rtdUpdatedLock)
-                            _rtdUpdated = true;
+                        lock (_notifyLock)
+                            _isExcelNotifiedOfUpdates = true;
 
                         _callback.UpdateNotify();
                     }
@@ -164,8 +164,8 @@ namespace RedisRtd
         // Excel calls this every once in a while.
         int IRtdServer.Heartbeat ()
         {
-            lock (_rtdUpdatedLock)  // just in case it gets stuck
-                _rtdUpdated = false;
+            lock (_notifyLock)  // just in case it gets stuck
+                _isExcelNotifiedOfUpdates = false;
 
             return 1;
         }
@@ -187,9 +187,9 @@ namespace RedisRtd
                 i++;
             }
 
-            lock (_rtdUpdatedLock)
+            lock (_notifyLock)
             {
-                _rtdUpdated = false;
+                _isExcelNotifiedOfUpdates = false;
                 return data;
             }
         }
