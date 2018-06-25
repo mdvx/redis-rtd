@@ -37,14 +37,14 @@ namespace TestApp
                 var json = "JSON_" + i;
                 var raw = "RAW_" + i;
 
-                Task.Run(() => PublishRabbit(json, "FIELD", true, cts.Token));
-                Task.Run(() => PublishRabbit(raw, "FIELD", true, cts.Token));
+                Task.Run(() => PublishRedis(json, "FIELD", true, cts.Token));
+                Task.Run(() => PublishRedis(raw, "FIELD", false, cts.Token));
             }
 
             // Start up a Windows message pump and spin forever.
             Dispatcher.Run();
         }
-        void PublishRabbit(string channel, string field, bool json, CancellationToken cts)
+        void PublishRedis(string channel, string field, bool json, CancellationToken cts)
         {
             ConfigurationOptions options = new ConfigurationOptions
             {
