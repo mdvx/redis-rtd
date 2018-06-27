@@ -4,7 +4,7 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{95F50618-AA6C-4551-8CD7-49E04C0D5CE9}</ProjectGuid>
+    <ProjectGuid>{62CB6CCE-DB76-4F70-A694-C0CE1D524064}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>RedisRtd</RootNamespace>
@@ -82,7 +82,7 @@
   <ItemGroup>
     <Compile Include="ExcelComInterfaces.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="RtdServer.cs" />
+    <Compile Include="RedisRtdServer.cs" />
     <Compile Include="SubscriptionManager.cs" />
   </ItemGroup>
   <ItemGroup>

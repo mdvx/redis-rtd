@@ -107,14 +107,9 @@ namespace RedisRtd
             return false;
         }
         [DebuggerStepThrough]
-        public static string FormatPath(string host, string channel)
+        public static string FormatPath(string host, string channel, string field=null)
         {
-            return string.Format($"{host.ToUpperInvariant()}/{channel}/");
-        }
-        [DebuggerStepThrough]
-        public static string FormatPath(string host, string channel, string field)
-        {
-            return FormatPath(host,channel) + field;
+            return string.Format($"{0}/{1}/{2}", host.ToUpperInvariant(),channel,field);
         }
 
         public class SubInfo

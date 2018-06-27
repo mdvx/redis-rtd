@@ -17,7 +17,7 @@ namespace RedisRtd
         // Users will use it from Excel: =RTD("redis",, ....)
         ProgId("redis")
     ]
-    public class RtdServer : IRtdServer
+    public class RedisRtdServer : IRtdServer
     {
         IRtdUpdateEvent _callback;
 
@@ -30,7 +30,7 @@ namespace RedisRtd
         private const string CLOCK = "CLOCK";
         private const string LAST_RTD = "LAST_RTD";
 
-        public RtdServer ()
+        public RedisRtdServer ()
         {
             ConnectionMultiplexer redisConnection = ConnectionMultiplexer.Connect("localhost");
             //IDatabase redisDb = redisDb = redisConnection.GetDatabase();
@@ -42,15 +42,22 @@ namespace RedisRtd
         {
             _callback = callback;
             _subMgr = new SubscriptionManager(() => {
-                if (_callback != null)
+                try
                 {
-                    if (!_isExcelNotifiedOfUpdates)
+                    if (_callback != null)
                     {
-                        lock (_notifyLock)
-                            _isExcelNotifiedOfUpdates = true;
-
-                        _callback.UpdateNotify();
+                        if (!_isExcelNotifiedOfUpdates)
+                        {
+                            lock (_notifyLock)
+                            {
+                                _callback.UpdateNotify();
+                                _isExcelNotifiedOfUpdates = true;
+                            }
+                        }
                     }
+                } catch(Exception ex)  // HRESULT: 0x8001010A (RPC_E_SERVERCALL_RETRYLATER
+                {
+                    Console.WriteLine(ex.Message);
                 }
             });
 
@@ -80,6 +87,8 @@ namespace RedisRtd
                                        ref Array strings,
                                        ref bool newValues)
         {
+            newValues = true;
+
             if (strings.Length == 1)
             {
                 string host = strings.GetValue(0).ToString().ToUpperInvariant();
@@ -103,38 +112,41 @@ namespace RedisRtd
             }
             else if (strings.Length >= 2)
             {
-                newValues = true;
-
                 // Crappy COM-style arrays...
-                string host = strings.GetValue(0).ToString();
-                string key = strings.GetValue(1).ToString();
+                string host = strings.GetValue(0).ToString().ToUpperInvariant();
+                string channel = strings.GetValue(1).ToString();
                 string field = strings.Length > 2 ? strings.GetValue(2).ToString() : "";
 
-                return SubscribeRedis(topicId, host, key, field);
+                return SubscribeRedis(topicId, host, channel, field);
             }
-
-            newValues = false;
 
             return "ERROR: Expected: CLOCK or host, key, field";
         }
         private object SubscribeRedis(int topicId, string host, string channel, string field)
         {
+
+            if (String.IsNullOrEmpty(channel))
+            {
+                var rtdTopicString = SubscriptionManager.FormatPath(host, channel, field);
+                _subMgr.Set(rtdTopicString, "<channel required>");
+                return "<channel required>";
+            }
+
             lock (_subMgr)
             {
                 if (_subMgr.Subscribe(topicId, host, channel, field))
                     return _subMgr.GetValue(topicId); // already subscribed 
             }
             _redisSubscriber.Subscribe(channel, (chan, message) => {
+                var rtdSubTopic = SubscriptionManager.FormatPath(host, chan);
                 try
                 {
                     var str = message.ToString();
-
-                    var rtdSubTopic = SubscriptionManager.FormatPath(host, chan);
                     _subMgr.Set(rtdSubTopic, str);
 
                     if (str.StartsWith("{"))
                     {
-                        var jo = JsonConvert.DeserializeObject<Dictionary<String, String>>(str);
+                        var jo = JsonConvert.DeserializeObject<Dictionary<String, object>>(str);
 
                         foreach (string field_in in jo.Keys)
                         {
@@ -145,7 +157,7 @@ namespace RedisRtd
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.Message);
+                    _subMgr.Set(rtdSubTopic, ex.Message);
                 }
             });
 
@@ -173,47 +185,39 @@ namespace RedisRtd
         // Excel calls this to get changed values. 
         Array IRtdServer.RefreshData (ref int topicCount)
         {
-            var updates = GetUpdatedValues();
-            topicCount = updates.Count;
-
-            object[,] data = new object[2, topicCount];
-
-            int i = 0;
-            foreach (var info in updates)
+            try
             {
-                data[0, i] = info.TopicId;
-                data[1, i] = info.Value;
+                var updates = GetUpdatedValues();
+                topicCount = updates.Count;
 
-                i++;
-            }
+                object[,] data = new object[2, topicCount];
 
-            lock (_notifyLock)
-            {
-                _isExcelNotifiedOfUpdates = false;
+                int i = 0;
+                foreach (var info in updates)
+                {
+                    data[0, i] = info.TopicId;
+                    data[1, i] = info.Value;
+
+                    i++;
+                }
+
                 return data;
+            } 
+            finally
+            {
+                lock (_notifyLock)
+                    _isExcelNotifiedOfUpdates = false;
             }
         }
-        
+
         // Helper function which checks if new data is available and,
         // if so, notifies Excel about it.
         private void TimerElapsed (object sender, EventArgs e)
         {
-            bool wasMarketDataUpdated;
-
-            lock (_subMgr)
-            {
-                wasMarketDataUpdated = _subMgr.IsDirty;
-            }
-
-            if (wasMarketDataUpdated)
-            {
-                // Notify Excel that Market Data has been updated
+            if (_subMgr.IsDirty)
                 _subMgr.Set(LAST_RTD, DateTime.Now.ToLocalTime());
-                _callback.UpdateNotify();
-            }
 
-            if (_subMgr.Set(CLOCK, DateTime.Now.ToLocalTime()))
-                _callback.UpdateNotify();
+            _subMgr.Set(CLOCK, DateTime.Now.ToLocalTime());
         }
 
         List<SubscriptionManager.UpdatedValue> GetUpdatedValues ()
