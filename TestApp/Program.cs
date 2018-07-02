@@ -70,13 +70,13 @@ namespace TestApp
 
                 if (l % 1000 == 0)
                 {  
-                    Console.WriteLine("sending " + str.Substring(0, Math.Min(75, str.Length)));
+                    Console.WriteLine("sent " + str.Substring(0, Math.Min(75, str.Length)));
 
                     var d = random.NextDouble();
                     var e = random.Next(5);
                     r = (int)(d * Math.Pow(10, e));  // r should fall between 0 and 4*100,000
 
-                    padding = new String('x', r);
+                    padding = new String('x', r+1);
                 }
                 Thread.Sleep(3);
             }

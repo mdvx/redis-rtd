@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using StackExchange.Redis;
+using NLog;
 
 namespace RedisRtd
 {
@@ -19,9 +20,11 @@ namespace RedisRtd
     ]
     public class RedisRtdServer : IRtdServer
     {
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+
         IRtdUpdateEvent _callback;
 
-        //DispatcherTimer _timer;
+        DispatcherTimer _timer;
         SubscriptionManager _subMgr;
         ISubscriber _redisSubscriber;
         bool _isExcelNotifiedOfUpdates = false;
@@ -65,11 +68,11 @@ namespace RedisRtd
             // It is also important to invoke the Excel callback notify
             // function from the COM thread. System.Windows.Threading' 
             // DispatcherTimer will use COM thread's message pump.
-            //DispatcherTimer dispatcherTimer = new DispatcherTimer();
-            //_timer = dispatcherTimer;
-            //_timer.Interval = TimeSpan.FromMilliseconds(95); // this needs to be very frequent
-            //_timer.Tick += TimerElapsed;
-            //_timer.Start();
+            DispatcherTimer dispatcherTimer = new DispatcherTimer();
+            _timer = dispatcherTimer;
+            _timer.Interval = TimeSpan.FromMilliseconds(95); // this needs to be very frequent
+            _timer.Tick += TimerElapsed;
+            _timer.Start();
 
             return 1;
         }
@@ -79,7 +82,6 @@ namespace RedisRtd
         {
             _callback = null;
         }
-
         // Excel calls this when it wants to make a new topic subscription.
         // topicId becomes the key representing the subscription.
         // String array contains any aux data user provides to RTD macro.
@@ -96,14 +98,14 @@ namespace RedisRtd
                 switch (host)
                 {
                     case CLOCK:
-                        lock (_subMgr)
-                            _subMgr.Subscribe(topicId, null, CLOCK);
+                        if(_subMgr.Subscribe(topicId, null, CLOCK))
+                            return _subMgr.GetValue(topicId);
 
                         return DateTime.Now.ToLocalTime();
 
                     case LAST_RTD:
-                        lock (_subMgr)
-                            _subMgr.Subscribe(topicId, null, LAST_RTD);
+                        if (_subMgr.Subscribe(topicId, null, LAST_RTD))
+                            return _subMgr.GetValue(topicId);
 
                         return DateTime.Now.ToLocalTime();
                         //return SubscriptionManager.UninitializedValue;
@@ -124,70 +126,66 @@ namespace RedisRtd
         }
         private object SubscribeRedis(int topicId, string host, string channel, string field)
         {
-
             if (String.IsNullOrEmpty(channel))
-            {
-                var rtdTopicString = SubscriptionManager.FormatPath(host, channel, field);
-                _subMgr.Set(rtdTopicString, "<channel required>");
                 return "<channel required>";
-            }
 
-            lock (_subMgr)
+            if (_subMgr.Subscribe(topicId, host, channel, field))
+                return _subMgr.GetValue(topicId); // already subscribed 
+
+            //Logger.Debug(channel);
+            try
             {
-                if (_subMgr.Subscribe(topicId, host, channel, field))
-                    return _subMgr.GetValue(topicId); // already subscribed 
-            }
-            _redisSubscriber.Subscribe(channel, (chan, message) => {
-                var rtdSubTopic = SubscriptionManager.FormatPath(host, chan);
-                try
-                {
-                    var str = message.ToString();
-                    _subMgr.Set(rtdSubTopic, str);
-
-                    if (str.StartsWith("{"))
+                _redisSubscriber.Subscribe(channel, (chan, message) => {
+                    var rtdSubTopic = SubscriptionManager.FormatPath(host, chan);
+                    try
                     {
-                        var jo = JsonConvert.DeserializeObject<Dictionary<String, object>>(str);
+                        var str = message.ToString();
+                        _subMgr.Set(rtdSubTopic, str);
 
-                        foreach (string field_in in jo.Keys)
+                        if (str.StartsWith("{"))
                         {
-                            var rtdTopicString = SubscriptionManager.FormatPath(host, channel, field_in);
-                            _subMgr.Set(rtdTopicString, jo[field_in]);
+                            var jo = JsonConvert.DeserializeObject<Dictionary<String, object>>(str);
+
+                            foreach (string field_in in jo.Keys)
+                            {
+                                var rtdTopicString = SubscriptionManager.FormatPath(host, channel, field_in);
+                                object val = jo[field_in];
+
+                                _subMgr.Set(rtdTopicString, val);
+                            }
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _subMgr.Set(rtdSubTopic, ex.Message);
-                }
-            });
-
+                    catch (Exception ex)
+                    {
+                        _subMgr.Set(rtdSubTopic, ex.Message);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _subMgr.Set(topicId, ex.Message);
+            }
             return _subMgr.GetValue(topicId);
         }
-
         // Excel calls this when it wants to cancel subscription.
         void IRtdServer.DisconnectData (int topicId)
         {
-            lock (_subMgr)
-            {
-                _subMgr.Unsubscribe(topicId);
-            }
+            _subMgr.Unsubscribe(topicId);
         }
-
         // Excel calls this every once in a while.
         int IRtdServer.Heartbeat ()
         {
-            lock (_notifyLock)  // just in case it gets stuck
-                _isExcelNotifiedOfUpdates = false;
+            lock (_notifyLock)  
+                _isExcelNotifiedOfUpdates = false;  // just in case it gets stuck
 
             return 1;
         }
-
         // Excel calls this to get changed values. 
         Array IRtdServer.RefreshData (ref int topicCount)
         {
             try
             {
-                var updates = GetUpdatedValues();
+                var updates = _subMgr.GetUpdatedValues();
                 topicCount = updates.Count;
 
                 object[,] data = new object[2, topicCount];
@@ -200,7 +198,6 @@ namespace RedisRtd
 
                     i++;
                 }
-
                 return data;
             } 
             finally
@@ -209,7 +206,6 @@ namespace RedisRtd
                     _isExcelNotifiedOfUpdates = false;
             }
         }
-
         // Helper function which checks if new data is available and,
         // if so, notifies Excel about it.
         private void TimerElapsed (object sender, EventArgs e)
@@ -218,14 +214,6 @@ namespace RedisRtd
                 _subMgr.Set(LAST_RTD, DateTime.Now.ToLocalTime());
 
             _subMgr.Set(CLOCK, DateTime.Now.ToLocalTime());
-        }
-
-        List<SubscriptionManager.UpdatedValue> GetUpdatedValues ()
-        {
-            lock (_subMgr)
-            {
-                return _subMgr.GetUpdatedValues();
-            }
         }
     }
 }

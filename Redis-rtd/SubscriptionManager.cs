@@ -34,12 +34,11 @@ namespace RedisRtd
 
         public bool Subscribe(int topicId, string host, string channel, string field=null)
         {
-            var redisPath = FormatPath(host, channel);
             var topicPath = FormatPath(host, channel, field);
-
             var alreadySubscribed = false;
+            var redisPath = FormatPath(host, channel);
 
-            if (_subByRedisPath.TryGetValue(redisPath, out SubInfo subInfo))
+            if (_subByTopicId.TryGetValue(topicId, out SubInfo subInfo))
             {
                 alreadySubscribed = true;
                 subInfo.AddField(field);
@@ -48,12 +47,11 @@ namespace RedisRtd
             {
                 subInfo = new SubInfo(topicId, redisPath);
                 subInfo.AddField(field);
-                _subByRedisPath[redisPath] = subInfo;
+                _subByTopicId[topicId] = subInfo;
             }
 
-            SubInfo rtdSubInfo = new SubInfo(topicId, topicPath);
-            _subByTopicId[topicId] = rtdSubInfo;
-            _subByTopicPath[topicPath] = rtdSubInfo;
+            _subByRedisPath[redisPath] = subInfo;
+            _subByTopicPath[topicPath] = subInfo;
 
             return alreadySubscribed;
         }
@@ -89,13 +87,39 @@ namespace RedisRtd
             return updated;
         }
 
+        public void Set(int topicId, object value)
+        {
+            if (_subByTopicId.TryGetValue(topicId, out SubInfo subInfo))
+            {
+                subInfo.Value = value;
+                lock (_dirtyMap)
+                {
+                    _dirtyMap[topicId] = subInfo;
+                    _onDirty?.Invoke();
+                }
+            }
+        }
+
         public bool Set(string path, object value)
         {
+            if (string.IsNullOrEmpty(path))
+                throw new ArgumentException("path is empty");
+
             if (_subByTopicPath.TryGetValue(path, out SubInfo subInfo))
             {
                 if (value != subInfo.Value)
                 {
-                    subInfo.Value = value;
+                    if (value is string)
+                    {
+                        var str = value as string;
+                        if (str.Length > 32767)
+                            subInfo.Value = $"Error: string too long for Excel ({str.Length} > 32767)";
+                        else
+                            subInfo.Value = value;
+                    }
+                    else
+                        subInfo.Value = value;
+
                     lock (_dirtyMap)
                     {
                         _dirtyMap[subInfo.TopicId] = subInfo;
@@ -109,7 +133,7 @@ namespace RedisRtd
         [DebuggerStepThrough]
         public static string FormatPath(string host, string channel, string field=null)
         {
-            return string.Format($"{0}/{1}/{2}", host.ToUpperInvariant(),channel,field);
+            return string.Format("{0}/{1}/{2}", host.ToUpperInvariant(), channel, field);
         }
 
         public class SubInfo
@@ -120,12 +144,15 @@ namespace RedisRtd
 
             public object Value { get; set; }
 
-            public SubInfo(int topicId, string path)
+            public SubInfo(int topicId, string path, object value)
             {
                 TopicId = topicId;
                 Path = path;
-                Value = UninitializedValue;
+                Value = value;
                 Fields = new HashSet<string>();
+            }
+            public SubInfo(int topicId, string path) : this(topicId, path, UninitializedValue)
+            {
             }
             public void AddField(string field)
             {
