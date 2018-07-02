@@ -74,9 +74,9 @@ namespace TestApp
 
                     var d = random.NextDouble();
                     var e = random.Next(5);
-                    r = (int)(d * Math.Pow(10, e));  // r should fall between 0 and 4*100,000
+                    r = (int)(d * Math.Pow(10, e)) + 1;  // r should fall between 0 and 4*100,000
 
-                    padding = new String('x', r+1);
+                    padding = new String('x', r);
                 }
                 Thread.Sleep(3);
             }
