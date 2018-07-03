@@ -29,6 +29,7 @@ namespace RedisRtd
         ISubscriber _redisSubscriber;
         bool _isExcelNotifiedOfUpdates = false;
         object _notifyLock = new object();
+        object _syncLock = new object();
 
         private const string CLOCK = "CLOCK";
         private const string LAST_RTD = "LAST_RTD";
@@ -146,13 +147,16 @@ namespace RedisRtd
                         {
                             var jo = JsonConvert.DeserializeObject<Dictionary<String, object>>(str);
 
-                            foreach (string field_in in jo.Keys)
+                            lock (_syncLock)
                             {
-                                var rtdTopicString = SubscriptionManager.FormatPath(host, channel, field_in);
-                                object val = jo[field_in];
+                                foreach (string field_in in jo.Keys)
+                                {
+                                    var rtdTopicString = SubscriptionManager.FormatPath(host, channel, field_in);
+                                    object val = jo[field_in];
 
-                                _subMgr.Set(rtdTopicString, val);
-                            }
+                                    _subMgr.Set(rtdTopicString, val);
+                                }
+                            } 
                         }
                     }
                     catch (Exception ex)
@@ -185,8 +189,12 @@ namespace RedisRtd
         {
             try
             {
-                var updates = _subMgr.GetUpdatedValues();
-                topicCount = updates.Count;
+                List<SubscriptionManager.UpdatedValue> updates;
+                lock (_syncLock)
+                {
+                    updates = _subMgr.GetUpdatedValues();
+                    topicCount = updates.Count;
+                }
 
                 object[,] data = new object[2, topicCount];
 
