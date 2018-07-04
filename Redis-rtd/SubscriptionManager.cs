@@ -69,7 +69,10 @@ namespace RedisRtd
 
         public object GetValue(int topicId)
         {
-            return _subByTopicId[topicId]?.Value;
+            if (_subByTopicId.TryGetValue(topicId, out SubInfo sub))
+                return sub.Value;
+
+            return UninitializedValue;
         }
 
         public List<UpdatedValue> GetUpdatedValues()
