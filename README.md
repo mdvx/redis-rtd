@@ -1,7 +1,7 @@
 # redis-rtd
 Excel RTD server sourcing data from Redis
 
-![Excel screenshot](doc/ice_video_20180709-212403.gif.png)
+![Excel screenshot](ice_video_20180709-212403.gif.png)
 
 
 ## Installation
