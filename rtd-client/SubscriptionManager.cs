@@ -70,7 +70,7 @@ namespace RedisRtd
         public object GetValue(int topicId)
         {
             if (_subByTopicId.TryGetValue(topicId, out SubInfo sub))
-                return sub.Value;
+                return ToExcelValue(sub.Value);
 
             return UninitializedValue;
         }
@@ -112,17 +112,8 @@ namespace RedisRtd
             {
                 if (value != subInfo.Value)
                 {
-                    if (value is string)
-                    {
-                        var str = value as string;
-                        if (str.Length > 32767)
-                            subInfo.Value = $"Error: string too long for Excel ({str.Length} > 32767)";
-                        else
-                            subInfo.Value = value;
-                    }
-                    else
-                        subInfo.Value = value;
-
+                    subInfo.Value = value;
+                    
                     lock (_dirtyMap)
                     {
                         _dirtyMap[subInfo.TopicId] = subInfo;
@@ -174,25 +165,31 @@ namespace RedisRtd
             public UpdatedValue(int topicId, object value) : this()
             {
                 TopicId = topicId;
-
-                if (value is String)
-                {
-                   if (Decimal.TryParse(value.ToString(), out Decimal dec))
-                        Value = dec;
-                    else
-                        Value = value;
-
-                    if (dec > 1500_000_000_000 && dec < 1600_000_000_000)
-                        Value = DateTimeOffset
-                            .FromUnixTimeMilliseconds(Decimal.ToInt64(dec))
-                            .DateTime
-                            .ToLocalTime();
-                }
-                else
-                {
-                    Value = value;
-                }
+                Value = ToExcelValue(value);
             }
+        }
+
+        private static object ToExcelValue(object val)
+        {
+            object result;
+            if (val is String)
+            {
+                if (Decimal.TryParse(val.ToString(), out Decimal dec))
+                    result = dec;
+                else
+                    result = val;
+
+                if (dec > 1500_000_000_000 && dec < 1600_000_000_000)
+                    result = DateTimeOffset
+                        .FromUnixTimeMilliseconds(Decimal.ToInt64(dec))
+                        .DateTime
+                        .ToLocalTime();
+            }
+            else
+            {
+                result = val;
+            }
+            return result;
         }
     }
 }
