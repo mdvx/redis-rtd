@@ -26,19 +26,17 @@ namespace RedisRtd
 
         DispatcherTimer _timer;
         SubscriptionManager _subMgr;
-        ISubscriber _redisSubscriber;
+
         bool _isExcelNotifiedOfUpdates = false;
         object _notifyLock = new object();
         object _syncLock = new object();
 
         private const string CLOCK = "CLOCK";
         private const string LAST_RTD = "LAST_RTD";
+        private Dictionary<string, ISubscriber> _subscribers = new Dictionary<string, ISubscriber>();
 
         public RedisRtdServer ()
         {
-            ConnectionMultiplexer redisConnection = ConnectionMultiplexer.Connect("localhost");
-            //IDatabase redisDb = redisDb = redisConnection.GetDatabase();
-            _redisSubscriber = redisConnection.GetSubscriber();
         }
         // Excel calls this. It's an entry point. It passes us a callback
         // structure which we save for later.
@@ -130,13 +128,22 @@ namespace RedisRtd
             if (String.IsNullOrEmpty(channel))
                 return "<channel required>";
 
+            if (String.IsNullOrEmpty(host))
+                host = "LOCALHOST";
+
+            if (!_subscribers.TryGetValue(host, out ISubscriber subscriber))
+            {
+                ConnectionMultiplexer connection = ConnectionMultiplexer.Connect(host);
+                _subscribers[host] = subscriber = connection.GetSubscriber();
+            }
+
             if (_subMgr.Subscribe(topicId, host, channel, field))
                 return _subMgr.GetValue(topicId); // already subscribed 
 
             //Logger.Debug(channel);
             try
             {
-                _redisSubscriber.Subscribe(channel, (chan, message) => {
+                subscriber.Subscribe(channel, (chan, message) => {
                     var rtdSubTopic = SubscriptionManager.FormatPath(host, chan);
                     try
                     {
