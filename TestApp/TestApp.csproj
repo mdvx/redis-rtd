@@ -58,8 +58,8 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Redis-rtd\Redis-Rtd.csproj">
-      <Project>{95f50618-aa6c-4551-8cd7-49e04c0d5ce9}</Project>
+    <ProjectReference Include="..\rtd-client\Redis-Rtd.csproj">
+      <Project>{62cb6cce-db76-4f70-a694-c0ce1d524064}</Project>
       <Name>Redis-Rtd</Name>
     </ProjectReference>
   </ItemGroup>
