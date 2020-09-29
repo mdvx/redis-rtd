@@ -225,9 +225,9 @@ namespace RedisRtd
         private void TimerElapsed (object sender, EventArgs e)
         {
             if (_subMgr.IsDirty)
-                _subMgr.Set(LAST_RTD, DateTime.Now.ToLocalTime());
+                _subMgr.Set(SubscriptionManager.FormatPath(null, LAST_RTD), DateTime.Now.ToLocalTime());
 
-            _subMgr.Set(CLOCK, DateTime.Now.ToLocalTime());
+            _subMgr.Set(SubscriptionManager.FormatPath(null, CLOCK), DateTime.Now.ToLocalTime());
         }
     }
 }
