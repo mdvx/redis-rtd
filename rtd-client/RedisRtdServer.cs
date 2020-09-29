@@ -114,7 +114,7 @@ namespace RedisRtd
             else if (strings.Length >= 2)
             {
                 // Crappy COM-style arrays...
-                string host = strings.GetValue(0).ToString().ToUpperInvariant();
+                string host = strings.GetValue(0).ToString();//.ToUpperInvariant();
                 string channel = strings.GetValue(1).ToString();
                 string field = strings.Length > 2 ? strings.GetValue(2).ToString() : "";
 
@@ -135,7 +135,24 @@ namespace RedisRtd
 
                 if (!_subscribers.TryGetValue(host, out ISubscriber subscriber))
                 {
-                    ConnectionMultiplexer connection = ConnectionMultiplexer.Connect(host);
+                    var endpointAddr = host;
+                    
+                    var options = new ConfigurationOptions();
+                    options.ClientName = "Excel RTD";
+                    
+                    ConnectionMultiplexer connection;
+                    var posOfAtSign = host.IndexOf('@'); 
+                    if (posOfAtSign > 0)
+                    {
+                        var password = host.Substring(0, posOfAtSign);
+                        if (!string.IsNullOrWhiteSpace(password))
+                            options.Password = password;
+                        endpointAddr = host.Substring(posOfAtSign + 1);
+                    }
+                    
+                    options.EndPoints.Add(endpointAddr);
+                    
+                    connection = ConnectionMultiplexer.Connect(options);
                     _subscribers[host] = subscriber = connection.GetSubscriber();
                 }
 
