@@ -127,7 +127,7 @@ namespace RedisRtd
         [DebuggerStepThrough]
         public static string FormatPath(string host, string channel, string field=null)
         {
-            return string.Format("{0}/{1}/{2}", host.ToUpperInvariant(), channel, field);
+            return string.Format("{0}/{1}/{2}", host?.ToUpperInvariant(), channel, field);
         }
 
         public class SubInfo
